@@ -1,20 +1,20 @@
-looker.viz.register({
-  // Configuration options for the user in the Looker UI
+looker.plugins.visualizations.add({
+  // Property options for the visualization editor
   options: {
-    gauge_color: {
-      type: "string",
-      label: "Gauge Color (High)",
-      default: "#34a853",
-      display: "color"
-    },
-    target_value: {
+    greenThreshold: {
       type: "number",
-      label: "Target Value (for % calculation)",
-      default: 100
+      label: "Green Threshold (%)",
+      default: 80,
+      section: "Formatting"
+    },
+    amberThreshold: {
+      type: "number",
+      label: "Amber Threshold (%)",
+      default: 50,
+      section: "Formatting"
     }
   },
 
-  // Called once when the visualization is initialized
   create: function(element, config) {
     element.innerHTML = `
       <style>
@@ -26,65 +26,55 @@ looker.viz.register({
           height: 100%;
           font-family: 'Open Sans', Helvetica, Arial, sans-serif;
         }
-        .trend-badge {
-          margin-top: -10px;
-          padding: 2px 8px;
-          border-radius: 12px;
-          font-size: 12px;
-          font-weight: bold;
-        }
-        .ratio-text {
-          font-size: 11px;
-          color: #666;
-          margin-top: 2px;
-        }
+        .gauge-svg { width: 100%; height: 80%; }
+        .gauge-text { font-size: 24px; font-weight: bold; }
+        .gauge-label { font-size: 14px; color: #666; }
       </style>
-      <div id="viz-target" class="gauge-container"></div>
+      <div class="gauge-container" id="gauge-target"></div>
     `;
   },
 
-  // Called every time the data or settings change
   updateAsync: function(data, element, config, queryResponse, details, done) {
-    const target = document.getElementById('viz-target');
-    
-    // 1. Data Extraction (Assumes: 1st column=Score, 2nd=Trend, 3rd=Ratio)
-    // Note: Adjust these indexes based on your Explore field order
-    const score = data[0][queryResponse.fields.measure_like[0].name].value;
-    const trend = data[0][queryResponse.fields.measure_like[1].name].value;
-    const ratio = data[0][queryResponse.fields.measure_like[2].name].value;
-    
-    const targetVal = config.target_value || 100;
-    const percentage = Math.min((score / targetVal) * 100, 100);
-    const dashArray = (percentage * 251) / 100; // 251 is the circumference of r=40
+    const container = document.getElementById("gauge-target");
+    container.innerHTML = ""; // Clear previous render
 
-    // 2. Trend Logic
-    const trendColor = trend >= 0 ? "#137333" : "#d93025";
-    const trendBg = trend >= 0 ? "#e6f4ea" : "#fce8e6";
-    const trendIcon = trend >= 0 ? "▲" : "▼";
+    // 1. Validation: Ensure we have two measures
+    if (queryResponse.fields.measure_like.length < 2) {
+      this.addError({title: "Missing Data", message: "This chart requires two measures: Actual and Total Expected."});
+      return;
+    }
 
-    // 3. Render the HTML/SVG
-    target.innerHTML = `
-      <svg width="180" height="140" viewBox="0 0 160 120">
-        <defs>
-          <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" style="stop-color:#ea4335" /> <stop offset="50%" style="stop-color:#fbbc04" /> <stop offset="100%" style="stop-color:#34a853" /> </linearGradient>
-        </defs>
-        
-        <circle cx="80" cy="60" r="40" fill="none" stroke="#e0e0e0" stroke-width="10" />
-        
-        <circle cx="80" cy="60" r="40" fill="none" stroke="url(#gaugeGradient)" 
-                stroke-width="10" stroke-linecap="round"
-                stroke-dasharray="${dashArray}, 251"
-                transform="rotate(-90 80 60)" />
-        
-        <text x="80" y="65" text-anchor="middle" font-size="18" font-weight="bold" fill="#333">${score}</text>
+    // 2. Data Extraction
+    const row = data[0];
+    const actual = row[queryResponse.fields.measure_like[0].name].value;
+    const expected = row[queryResponse.fields.measure_like[1].name].value;
+    
+    const percentage = expected > 0 ? Math.round((actual / expected) * 100) : 0;
+
+    // 3. Conditional Formatting Logic
+    let color = "#ed5558"; // Red (Default)
+    if (percentage >= config.greenThreshold) {
+      color = "#3eb0d5"; // Green (Looker Blue/Green)
+    } else if (percentage >= config.amberThreshold) {
+      color = "#e9b404"; // Amber
+    }
+
+    // 4. Render SVG Gauge
+    // Simple semi-circle calculation for a North Star Gauge
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
+    const offset = circumference - (percentage / 100) * circumference;
+
+    container.innerHTML = `
+      <svg viewBox="0 0 100 60" class="gauge-svg">
+        <path d="M20,50 A30,30 0 1,1 80,50" fill="none" stroke="#eee" stroke-width="8" />
+        <path d="M20,50 A30,30 0 1,1 80,50" fill="none" stroke="${color}" stroke-width="8" 
+              stroke-dasharray="${circumference}" 
+              stroke-dashoffset="${offset}" 
+              style="transition: stroke-dashoffset 0.5s ease;" />
       </svg>
-      
-      <div class="trend-badge" style="background-color: ${trendBg}; color: ${trendColor};">
-        ${trendIcon} ${Math.abs(trend)}%
-      </div>
-      
-      <div class="ratio-text">Ratio: ${ratio}</div>
+      <div class="gauge-text" style="color: ${color}">${percentage}%</div>
+      <div class="gauge-label">${actual.toLocaleString()} / ${expected.toLocaleString()}</div>
     `;
 
     done();
