@@ -1,13 +1,12 @@
 looker.plugins.visualizations.add({
-  // Property options for the visualization editor
   options: {
-    greenThreshold: {
+    green_threshold: {
       type: "number",
       label: "Green Threshold (%)",
       default: 80,
       section: "Formatting"
     },
-    amberThreshold: {
+    amber_threshold: {
       type: "number",
       label: "Amber Threshold (%)",
       default: 50,
@@ -18,63 +17,57 @@ looker.plugins.visualizations.add({
   create: function(element, config) {
     element.innerHTML = `
       <style>
-        .gauge-container {
+        .gauge-wrapper {
           display: flex;
           flex-direction: column;
           align-items: center;
           justify-content: center;
           height: 100%;
-          font-family: 'Open Sans', Helvetica, Arial, sans-serif;
+          font-family: sans-serif;
         }
-        .gauge-svg { width: 100%; height: 80%; }
-        .gauge-text { font-size: 24px; font-weight: bold; }
-        .gauge-label { font-size: 14px; color: #666; }
+        .gauge-svg { width: 100%; max-height: 70%; }
+        .val-text { font-size: 20px; font-weight: bold; margin-top: -20px; }
+        .label-text { font-size: 12px; color: #777; margin-top: 5px; }
       </style>
-      <div class="gauge-container" id="gauge-target"></div>
+      <div class="gauge-wrapper" id="viz-container"></div>
     `;
   },
 
   updateAsync: function(data, element, config, queryResponse, details, done) {
-    const container = document.getElementById("gauge-target");
-    container.innerHTML = ""; // Clear previous render
+    const container = document.getElementById("viz-container");
+    container.innerHTML = "";
 
-    // 1. Validation: Ensure we have two measures
+    // Validation
     if (queryResponse.fields.measure_like.length < 2) {
-      this.addError({title: "Missing Data", message: "This chart requires two measures: Actual and Total Expected."});
+      this.addError({title: "Requirement", message: "Select 'Actual' then 'Expected' measures."});
       return;
     }
 
-    // 2. Data Extraction
-    const row = data[0];
-    const actual = row[queryResponse.fields.measure_like[0].name].value;
-    const expected = row[queryResponse.fields.measure_like[1].name].value;
-    
-    const percentage = expected > 0 ? Math.round((actual / expected) * 100) : 0;
+    // Extract Data
+    const actual = data[0][queryResponse.fields.measure_like[0].name].value;
+    const expected = data[0][queryResponse.fields.measure_like[1].name].value;
+    const pct = expected > 0 ? (actual / expected) * 100 : 0;
+    const displayPct = Math.min(Math.round(pct), 100);
 
-    // 3. Conditional Formatting Logic
-    let color = "#ed5558"; // Red (Default)
-    if (percentage >= config.greenThreshold) {
-      color = "#3eb0d5"; // Green (Looker Blue/Green)
-    } else if (percentage >= config.amberThreshold) {
-      color = "#e9b404"; // Amber
-    }
+    // Color Logic
+    let color = "#FF4136"; // Red
+    if (pct >= config.green_threshold) color = "#2ECC40"; // Green
+    else if (pct >= config.amber_threshold) color = "#FF851B"; // Amber
 
-    // 4. Render SVG Gauge
-    // Simple semi-circle calculation for a North Star Gauge
-    const radius = 40;
-    const circumference = 2 * Math.PI * radius;
-    const offset = circumference - (percentage / 100) * circumference;
+    // SVG Math (Semi-circle)
+    const r = 40;
+    const circ = Math.PI * r; 
+    const dashOffset = circ - (Math.min(pct, 100) / 100) * circ;
 
     container.innerHTML = `
       <svg viewBox="0 0 100 60" class="gauge-svg">
-        <path d="M20,50 A30,30 0 1,1 80,50" fill="none" stroke="#eee" stroke-width="8" />
-        <path d="M20,50 A30,30 0 1,1 80,50" fill="none" stroke="${color}" stroke-width="8" 
-              stroke-dasharray="${circumference}" 
-              stroke-dashoffset="${offset}" 
-              style="transition: stroke-dashoffset 0.5s ease;" />
+        <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="#eee" stroke-width="10" stroke-linecap="round"/>
+        <path d="M10,50 A40,40 0 0,1 90,50" fill="none" stroke="${color}" stroke-width="10" 
+              stroke-dasharray="${circ}" stroke-dashoffset="${dashOffset}" 
+              stroke-linecap="round" style="transition: all 0.8s ease-out;"/>
       </svg>
-      <div class="gauge-text" style="color: ${color}">${percentage}%</div>
-      <div class="gauge-label">${actual.toLocaleString()} / ${expected.toLocaleString()}</div>
+      <div class="val-text" style="color: ${color}">${displayPct}%</div>
+      <div class="label-text">Actual: ${actual.toLocaleString()} / Target: ${expected.toLocaleString()}</div>
     `;
 
     done();
